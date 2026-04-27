@@ -8,6 +8,8 @@ Copy Codex CLI conversations from zsh.
 
 - [中文](#中文)
 - [English](#english)
+- [Implemented](#implemented)
+- [Architecture](#architecture)
 - [Roadmap](#roadmap)
 - [License](#license)
 - [Links](#links)
@@ -189,6 +191,43 @@ Apache-2.0.
 - `--timestamps`: keep message timestamps.
 - Interactive picker: choose session / turn.
 - Better schema compatibility: Codex local JSONL is not a stable public API.
+
+## Implemented
+
+| Feature | Status |
+| --- | --- |
+| Current-directory session scope | Done |
+| `--global` session scope | Done |
+| Recent session index | Done |
+| Session id / prefix lookup | Done |
+| `--user` / `--assistant` filters | Done |
+| `--turn N` | Done |
+| `--turn -1` / negative turn lookup | Done |
+| `--from N --to M` range | Done |
+| `--list` | Done |
+| `/tmp` TSV session index cache | Done |
+| `--reindex` | Done |
+| `--no-cache` | Done |
+| Clipboard fallback | Done |
+| `CODEX_COPY_CLIPBOARD=stdout` | Done |
+
+## Architecture
+
+```mermaid
+flowchart TD
+  CLI["codex-copy args"] --> Scope["scope: cwd or --global"]
+  CLI --> Filters["filters: role / turn / range"]
+  Scope --> Cache{"use cache?"}
+  Cache -->|"yes"| Index["/tmp/codex-copy-index-$USER.tsv"]
+  Cache -->|"--no-cache or stale"| Scan["scan CODEX_HOME/sessions/**/*.jsonl"]
+  Scan --> Meta["read session_meta: id / cwd / mtime / path"]
+  Meta --> Index
+  Index --> Select["select session by index or id prefix"]
+  Select --> Parse["parse JSONL event_msg"]
+  Parse --> Render["render Markdown"]
+  Filters --> Render
+  Render --> Deliver["pbcopy / wl-copy / xclip / xsel / stdout"]
+```
 
 ## License
 
