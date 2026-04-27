@@ -7,11 +7,12 @@ _codex_copy_usage() {
 Usage: codex-copy [SESSION_INDEX] [options]
 
 Session selection:
-  codex-copy                  Copy the latest session
-  codex-copy --last           Copy the latest session
-  codex-copy 2                Copy the second most recent session
+  codex-copy                  Copy the latest session for current directory
+  codex-copy --last           Copy the latest session for current directory
+  codex-copy 2                Copy the second most recent session for current directory
   codex-copy --session ID     Copy session by full id or unambiguous prefix
-  codex-copy --list           List recent sessions
+  codex-copy --list           List recent sessions for current directory
+  codex-copy --global         Search all sessions instead of current directory
 
 Message selection:
   --user                      Copy only user messages
@@ -43,36 +44,58 @@ _codex_copy_session_id() {
   jq -r 'select(.type=="session_meta") | .payload.id // empty' "$1" 2>/dev/null | head -n 1
 }
 
+_codex_copy_session_cwd() {
+  jq -r 'select(.type=="session_meta") | .payload.cwd // empty' "$1" 2>/dev/null | head -n 1
+}
+
 _codex_copy_find_sessions() {
   emulate -L zsh
   setopt nullglob
+  local scope_cwd="$1"
   local root="$(_codex_copy_sessions_root)"
-  local -a files
+  local -a files filtered
+  local file session_cwd
   [[ -d "$root" ]] || return 0
   files=("$root"/**/*.jsonl(.om))
+
+  if [[ -n "$scope_cwd" ]]; then
+    for file in "${files[@]}"; do
+      session_cwd="$(_codex_copy_session_cwd "$file")"
+      [[ "$session_cwd" == "$scope_cwd" ]] && filtered+=("$file")
+    done
+    files=("${filtered[@]}")
+  fi
+
   (( ${#files[@]} == 0 )) || print -rl -- "${files[@]}"
 }
 
 _codex_copy_list_sessions() {
-  local i=1 file id
-  _codex_copy_find_sessions | while IFS= read -r file; do
+  local scope_cwd="$1"
+  local i=1 file id cwd
+  _codex_copy_find_sessions "$scope_cwd" | while IFS= read -r file; do
     id="$(_codex_copy_session_id "$file")"
+    cwd="$(_codex_copy_session_cwd "$file")"
     [[ -n "$id" ]] || id="<unknown>"
-    printf "%d\t%s\t%s\n" "$i" "$id" "$file"
+    printf "%d\t%s\t%s\t%s\n" "$i" "$id" "$cwd" "$file"
     i=$((i + 1))
   done
 }
 
 _codex_copy_resolve_session_by_index() {
-  local index="$1" file
+  local index="$1" scope_cwd="$2" file
   if ! [[ "$index" == <-> ]] || (( index < 1 )); then
     print -u2 "codex-copy: recent session index must be >= 1"
     return 2
   fi
 
-  file="$(_codex_copy_find_sessions | sed -n "${index}p")"
+  file="$(_codex_copy_find_sessions "$scope_cwd" | sed -n "${index}p")"
   if [[ -z "$file" ]]; then
-    print -u2 "codex-copy: no Codex session found for index $index"
+    if [[ -n "$scope_cwd" ]]; then
+      print -u2 "codex-copy: no Codex session found for current directory index $index"
+      print -u2 "codex-copy: use --global to search all sessions"
+    else
+      print -u2 "codex-copy: no Codex session found for index $index"
+    fi
     return 1
   fi
 
@@ -80,7 +103,7 @@ _codex_copy_resolve_session_by_index() {
 }
 
 _codex_copy_resolve_session_by_id() {
-  local query="$1" file id
+  local query="$1" scope_cwd="$2" file id
   local -a matches
 
   while IFS= read -r file; do
@@ -88,10 +111,15 @@ _codex_copy_resolve_session_by_id() {
     if [[ "$id" == "$query" || "$id" == "$query"* ]]; then
       matches+=("$file")
     fi
-  done < <(_codex_copy_find_sessions)
+  done < <(_codex_copy_find_sessions "$scope_cwd")
 
   if (( ${#matches[@]} == 0 )); then
-    print -u2 "codex-copy: no session matched id prefix: $query"
+    if [[ -n "$scope_cwd" ]]; then
+      print -u2 "codex-copy: no current-directory session matched id prefix: $query"
+      print -u2 "codex-copy: use --global --session $query to search all sessions"
+    else
+      print -u2 "codex-copy: no session matched id prefix: $query"
+    fi
     return 1
   fi
 
@@ -184,6 +212,7 @@ codex-copy() {
   local role_filter="both"
   local from_turn="1" to_turn="999999"
   local list_sessions=0
+  local global_scope=0
   local arg
 
   while (( $# > 0 )); do
@@ -195,6 +224,10 @@ codex-copy() {
         ;;
       --list)
         list_sessions=1
+        shift
+        ;;
+      --global)
+        global_scope=1
         shift
         ;;
       --last)
@@ -267,8 +300,11 @@ codex-copy() {
 
   _codex_copy_require_jq || return $?
 
+  local scope_cwd="$PWD"
+  (( global_scope )) && scope_cwd=""
+
   if (( list_sessions )); then
-    _codex_copy_list_sessions
+    _codex_copy_list_sessions "$scope_cwd"
     return 0
   fi
 
@@ -279,9 +315,9 @@ codex-copy() {
 
   local file id content
   if [[ "$selector" == "id" ]]; then
-    file="$(_codex_copy_resolve_session_by_id "$selector_value")" || return $?
+    file="$(_codex_copy_resolve_session_by_id "$selector_value" "$scope_cwd")" || return $?
   else
-    file="$(_codex_copy_resolve_session_by_index "$selector_value")" || return $?
+    file="$(_codex_copy_resolve_session_by_index "$selector_value" "$scope_cwd")" || return $?
   fi
 
   content="$(_codex_copy_render_session "$file" "$role_filter" "$from_turn" "$to_turn")"

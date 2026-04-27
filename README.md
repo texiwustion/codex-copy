@@ -16,7 +16,7 @@ Copy Codex CLI conversations from zsh.
 
 `codex-copy` 是一个很小的 zsh 插件。
 
-它从本地 Codex CLI session 里取出 user / assistant 对话，转成 Markdown，然后复制到剪贴板。
+它从当前目录对应的本地 Codex CLI session 里取出 user / assistant 对话，转成 Markdown，然后复制到剪贴板。
 
 ### 安装
 
@@ -48,6 +48,7 @@ codex-copy --last
 codex-copy 2
 codex-copy --session 019dccac
 codex-copy --list
+codex-copy --global --list
 ```
 
 筛选消息：
@@ -71,6 +72,8 @@ CODEX_COPY_CLIPBOARD=stdout codex-copy --last
 - 这是 MVP。
 - 需要 `zsh` 和 `jq`。
 - 默认读取 `${CODEX_HOME:-$HOME/.codex}/sessions/**/*.jsonl`。
+- 默认只看当前目录对应的 sessions。
+- 加 `--global` 才搜索全部 sessions。
 - 默认只复制 user / assistant，不复制 tool output。
 - 目前只有 `--turn` 支持负数：`--turn -1` 表示最后一轮。
 - `--from` / `--to` 只支持正数。
@@ -97,7 +100,7 @@ Apache-2.0。
 
 `codex-copy` is a small zsh plugin.
 
-It reads local Codex CLI sessions, extracts user / assistant messages, renders Markdown, and copies it to the clipboard.
+It reads local Codex CLI sessions for the current directory, extracts user / assistant messages, renders Markdown, and copies it to the clipboard.
 
 ### Install
 
@@ -129,6 +132,7 @@ codex-copy --last
 codex-copy 2
 codex-copy --session 019dccac
 codex-copy --list
+codex-copy --global --list
 ```
 
 Filter messages:
@@ -152,6 +156,8 @@ CODEX_COPY_CLIPBOARD=stdout codex-copy --last
 - MVP.
 - Requires `zsh` and `jq`.
 - Reads `${CODEX_HOME:-$HOME/.codex}/sessions/**/*.jsonl`.
+- Searches sessions for the current directory by default.
+- Use `--global` to search all sessions.
 - Copies user / assistant messages by default. Tool output is skipped.
 - Only `--turn` supports negative indexes for now. `--turn -1` means the last turn.
 - `--from` / `--to` only accept positive indexes.
