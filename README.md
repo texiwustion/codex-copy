@@ -8,6 +8,7 @@ Copy Codex CLI conversations from zsh.
 
 - [中文](#中文)
 - [English](#english)
+- [Roadmap](#roadmap)
 - [License](#license)
 - [Links](#links)
 
@@ -85,6 +86,13 @@ CODEX_COPY_CLIPBOARD=stdout codex-copy --last
 
 Apache-2.0。
 
+### 待开发
+
+- `--with-tools`：复制 tool output。
+- `--timestamps`：保留消息时间。
+- 交互 picker：选择 session / turn。
+- 更稳的 schema 适配：Codex 本地 JSONL 不是公开稳定 API。
+
 ## English
 
 `codex-copy` is a small zsh plugin.
@@ -158,6 +166,13 @@ No remote service.
 No telemetry.
 
 Apache-2.0.
+
+### Roadmap
+
+- `--with-tools`: copy tool output.
+- `--timestamps`: keep message timestamps.
+- Interactive picker: choose session / turn.
+- Better schema compatibility: Codex local JSONL is not a stable public API.
 
 ## License
 
