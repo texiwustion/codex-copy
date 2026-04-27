@@ -9,6 +9,7 @@ Copy Codex CLI conversations from zsh.
 - [中文](#中文)
 - [English](#english)
 - [License](#license)
+- [Links](#links)
 
 ## 中文
 
@@ -162,3 +163,6 @@ Apache-2.0.
 
 Apache License 2.0. See [LICENSE](./LICENSE).
 
+## Links
+
+[![LINUX DO](https://img.shields.io/badge/LINUX%20DO-000000?style=for-the-badge&logo=linux&logoColor=white)](https://linux.do)
