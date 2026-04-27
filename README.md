@@ -49,6 +49,8 @@ codex-copy 2
 codex-copy --session 019dccac
 codex-copy --list
 codex-copy --global --list
+codex-copy --reindex --list
+codex-copy --no-cache --list
 ```
 
 筛选消息：
@@ -74,6 +76,9 @@ CODEX_COPY_CLIPBOARD=stdout codex-copy --last
 - 默认读取 `${CODEX_HOME:-$HOME/.codex}/sessions/**/*.jsonl`。
 - 默认只看当前目录对应的 sessions。
 - 加 `--global` 才搜索全部 sessions。
+- 默认使用 `/tmp/codex-copy-index-$USER.tsv` 缓存 session 索引。
+- 加 `--reindex` 强制重建缓存。
+- 加 `--no-cache` 跳过缓存。
 - 默认只复制 user / assistant，不复制 tool output。
 - 目前只有 `--turn` 支持负数：`--turn -1` 表示最后一轮。
 - `--from` / `--to` 只支持正数。
@@ -133,6 +138,8 @@ codex-copy 2
 codex-copy --session 019dccac
 codex-copy --list
 codex-copy --global --list
+codex-copy --reindex --list
+codex-copy --no-cache --list
 ```
 
 Filter messages:
@@ -158,6 +165,9 @@ CODEX_COPY_CLIPBOARD=stdout codex-copy --last
 - Reads `${CODEX_HOME:-$HOME/.codex}/sessions/**/*.jsonl`.
 - Searches sessions for the current directory by default.
 - Use `--global` to search all sessions.
+- Uses `/tmp/codex-copy-index-$USER.tsv` as the session index cache by default.
+- Use `--reindex` to rebuild the cache.
+- Use `--no-cache` to skip the cache.
 - Copies user / assistant messages by default. Tool output is skipped.
 - Only `--turn` supports negative indexes for now. `--turn -1` means the last turn.
 - `--from` / `--to` only accept positive indexes.

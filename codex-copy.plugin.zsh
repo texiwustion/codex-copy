@@ -13,6 +13,8 @@ Session selection:
   codex-copy --session ID     Copy session by full id or unambiguous prefix
   codex-copy --list           List recent sessions for current directory
   codex-copy --global         Search all sessions instead of current directory
+  codex-copy --reindex        Rebuild the session cache
+  codex-copy --no-cache       Scan sessions without reading or writing cache
 
 Message selection:
   --user                      Copy only user messages
@@ -25,6 +27,7 @@ Other:
 
 Environment:
   CODEX_HOME                  Defaults to ~/.codex
+  CODEX_COPY_CACHE_FILE       Defaults to /tmp/codex-copy-index-$USER.tsv
   CODEX_COPY_CLIPBOARD=stdout Print instead of copying, useful for tests
 EOF
 }
@@ -48,33 +51,100 @@ _codex_copy_session_cwd() {
   jq -r 'select(.type=="session_meta") | .payload.cwd // empty' "$1" 2>/dev/null | head -n 1
 }
 
-_codex_copy_find_sessions() {
+_codex_copy_cache_file() {
+  print -r -- "${CODEX_COPY_CACHE_FILE:-/tmp/codex-copy-index-${USER:-user}.tsv}"
+}
+
+_codex_copy_file_mtime() {
+  if stat -f %m "$1" >/dev/null 2>&1; then
+    stat -f %m "$1"
+  else
+    stat -c %Y "$1"
+  fi
+}
+
+_codex_copy_now_epoch() {
+  date +%s
+}
+
+_codex_copy_scan_index() {
   emulate -L zsh
   setopt nullglob
-  local scope_cwd="$1"
   local root="$(_codex_copy_sessions_root)"
-  local -a files filtered
-  local file session_cwd
+  local -a files
+  local file mtime id cwd
   [[ -d "$root" ]] || return 0
   files=("$root"/**/*.jsonl(.om))
+  for file in "${files[@]}"; do
+    mtime="$(_codex_copy_file_mtime "$file")"
+    id="$(_codex_copy_session_id "$file")"
+    cwd="$(_codex_copy_session_cwd "$file")"
+    [[ -n "$id" ]] || id="<unknown>"
+    printf "%s\t%s\t%s\t%s\n" "$mtime" "$id" "$cwd" "$file"
+  done
+}
+
+_codex_copy_rebuild_cache() {
+  local cache_file="$(_codex_copy_cache_file)"
+  local cache_dir="${cache_file:h}"
+  local tmp_file
+  mkdir -p "$cache_dir" 2>/dev/null || return 1
+  tmp_file="$(mktemp "${cache_file}.XXXXXX")" || return 1
+  _codex_copy_scan_index > "$tmp_file"
+  chmod 600 "$tmp_file" 2>/dev/null || true
+  mv "$tmp_file" "$cache_file"
+}
+
+_codex_copy_cache_is_fresh() {
+  local cache_file="$(_codex_copy_cache_file)"
+  local max_age="${CODEX_COPY_CACHE_TTL:-600}"
+  local now cache_mtime
+  [[ -s "$cache_file" ]] || return 1
+  now="$(_codex_copy_now_epoch)"
+  cache_mtime="$(_codex_copy_file_mtime "$cache_file")"
+  (( now - cache_mtime <= max_age ))
+}
+
+_codex_copy_index_rows() {
+  local use_cache="$1" force_reindex="$2"
+  local cache_file="$(_codex_copy_cache_file)"
+
+  if (( ! use_cache )); then
+    _codex_copy_scan_index
+    return
+  fi
+
+  if (( force_reindex )) || ! _codex_copy_cache_is_fresh; then
+    _codex_copy_rebuild_cache || return $?
+  fi
+
+  [[ -f "$cache_file" ]] && cat "$cache_file"
+}
+
+_codex_copy_find_sessions() {
+  local scope_cwd="$1" use_cache="$2" force_reindex="$3"
+  local -a files filtered
+  local row mtime id session_cwd file
 
   if [[ -n "$scope_cwd" ]]; then
-    for file in "${files[@]}"; do
-      session_cwd="$(_codex_copy_session_cwd "$file")"
+    while IFS=$'\t' read -r mtime id session_cwd file; do
       [[ "$session_cwd" == "$scope_cwd" ]] && filtered+=("$file")
-    done
+    done < <(_codex_copy_index_rows "$use_cache" "$force_reindex")
     files=("${filtered[@]}")
+  else
+    while IFS=$'\t' read -r mtime id session_cwd file; do
+      [[ -n "$file" ]] && files+=("$file")
+    done < <(_codex_copy_index_rows "$use_cache" "$force_reindex")
   fi
 
   (( ${#files[@]} == 0 )) || print -rl -- "${files[@]}"
 }
 
 _codex_copy_list_sessions() {
-  local scope_cwd="$1"
-  local i=1 file id cwd
-  _codex_copy_find_sessions "$scope_cwd" | while IFS= read -r file; do
-    id="$(_codex_copy_session_id "$file")"
-    cwd="$(_codex_copy_session_cwd "$file")"
+  local scope_cwd="$1" use_cache="$2" force_reindex="$3"
+  local i=1 row mtime id cwd file
+  _codex_copy_index_rows "$use_cache" "$force_reindex" | while IFS=$'\t' read -r mtime id cwd file; do
+    [[ -n "$scope_cwd" && "$cwd" != "$scope_cwd" ]] && continue
     [[ -n "$id" ]] || id="<unknown>"
     printf "%d\t%s\t%s\t%s\n" "$i" "$id" "$cwd" "$file"
     i=$((i + 1))
@@ -82,13 +152,13 @@ _codex_copy_list_sessions() {
 }
 
 _codex_copy_resolve_session_by_index() {
-  local index="$1" scope_cwd="$2" file
+  local index="$1" scope_cwd="$2" use_cache="$3" force_reindex="$4" file
   if ! [[ "$index" == <-> ]] || (( index < 1 )); then
     print -u2 "codex-copy: recent session index must be >= 1"
     return 2
   fi
 
-  file="$(_codex_copy_find_sessions "$scope_cwd" | sed -n "${index}p")"
+  file="$(_codex_copy_find_sessions "$scope_cwd" "$use_cache" "$force_reindex" | sed -n "${index}p")"
   if [[ -z "$file" ]]; then
     if [[ -n "$scope_cwd" ]]; then
       print -u2 "codex-copy: no Codex session found for current directory index $index"
@@ -103,7 +173,7 @@ _codex_copy_resolve_session_by_index() {
 }
 
 _codex_copy_resolve_session_by_id() {
-  local query="$1" scope_cwd="$2" file id
+  local query="$1" scope_cwd="$2" use_cache="$3" force_reindex="$4" file id
   local -a matches
 
   while IFS= read -r file; do
@@ -111,7 +181,7 @@ _codex_copy_resolve_session_by_id() {
     if [[ "$id" == "$query" || "$id" == "$query"* ]]; then
       matches+=("$file")
     fi
-  done < <(_codex_copy_find_sessions "$scope_cwd")
+  done < <(_codex_copy_find_sessions "$scope_cwd" "$use_cache" "$force_reindex")
 
   if (( ${#matches[@]} == 0 )); then
     if [[ -n "$scope_cwd" ]]; then
@@ -213,6 +283,8 @@ codex-copy() {
   local from_turn="1" to_turn="999999"
   local list_sessions=0
   local global_scope=0
+  local use_cache=1
+  local force_reindex=0
   local arg
 
   while (( $# > 0 )); do
@@ -228,6 +300,14 @@ codex-copy() {
         ;;
       --global)
         global_scope=1
+        shift
+        ;;
+      --reindex)
+        force_reindex=1
+        shift
+        ;;
+      --no-cache)
+        use_cache=0
         shift
         ;;
       --last)
@@ -304,7 +384,7 @@ codex-copy() {
   (( global_scope )) && scope_cwd=""
 
   if (( list_sessions )); then
-    _codex_copy_list_sessions "$scope_cwd"
+    _codex_copy_list_sessions "$scope_cwd" "$use_cache" "$force_reindex"
     return 0
   fi
 
@@ -315,9 +395,9 @@ codex-copy() {
 
   local file id content
   if [[ "$selector" == "id" ]]; then
-    file="$(_codex_copy_resolve_session_by_id "$selector_value" "$scope_cwd")" || return $?
+    file="$(_codex_copy_resolve_session_by_id "$selector_value" "$scope_cwd" "$use_cache" "$force_reindex")" || return $?
   else
-    file="$(_codex_copy_resolve_session_by_index "$selector_value" "$scope_cwd")" || return $?
+    file="$(_codex_copy_resolve_session_by_index "$selector_value" "$scope_cwd" "$use_cache" "$force_reindex")" || return $?
   fi
 
   content="$(_codex_copy_render_session "$file" "$role_filter" "$from_turn" "$to_turn")"
