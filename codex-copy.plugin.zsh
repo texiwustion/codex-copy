@@ -21,6 +21,8 @@ Message selection:
   --assistant                 Copy only assistant messages
   --turn N                    Copy turn N
   --from N --to M             Copy inclusive turn range
+  --with-tools                Include tool output blocks
+  -o PATH, --output PATH      Write Markdown to PATH instead of copying
 
 Other:
   --help                      Show this help
@@ -206,18 +208,54 @@ _codex_copy_resolve_session_by_id() {
 }
 
 _codex_copy_render_session() {
-  local file="$1" role_filter="$2" from_turn="$3" to_turn="$4"
+  local file="$1" role_filter="$2" from_turn="$3" to_turn="$4" include_tools="$5"
 
   jq -r -s \
     --arg role_filter "$role_filter" \
     --argjson from_turn "$from_turn" \
-    --argjson to_turn "$to_turn" '
+    --argjson to_turn "$to_turn" \
+    --argjson include_tools "$include_tools" '
       def resolved_turn($turn; $max_turn):
         if $turn < 0 then
           ($max_turn + $turn + 1)
         else
           $turn
         end;
+
+      def command_text($payload):
+        if ($payload.command | type) == "array" then
+          $payload.command | join(" ")
+        elif $payload.command == null then
+          ""
+        else
+          $payload.command | tostring
+        end;
+
+      def output_text($payload):
+        if ($payload.aggregated_output // "") != "" then
+          $payload.aggregated_output
+        elif ($payload.formatted_output // "") != "" then
+          $payload.formatted_output
+        elif ($payload.stdout // "") != "" or ($payload.stderr // "") != "" then
+          (($payload.stdout // "") + (if ($payload.stderr // "") != "" then "\n" + $payload.stderr else "" end))
+        else
+          ""
+        end;
+
+      def tool_item($row; $turn):
+        ($row.payload) as $payload
+        | (command_text($payload)) as $command
+        | (output_text($payload)) as $output
+        | {
+            turn: $turn,
+            role: "tool",
+            text: (
+              "## Tool: " + ($payload.type // "tool") + "\n\n" +
+              (if $command != "" then "Command:\n```text\n" + $command + "\n```\n\n" else "" end) +
+              (if ($payload.exit_code // null) != null then "Exit code: " + ($payload.exit_code | tostring) + "\n\n" else "" end) +
+              (if $output != "" then "Output:\n```text\n" + $output + "\n```\n" else "" end)
+            )
+          };
 
       reduce .[] as $row (
         {turn: 0, out: []};
@@ -226,6 +264,14 @@ _codex_copy_render_session() {
           | .out += [{turn: .turn, role: "user", text: ($row.payload.message // "")}]
         elif ($row.type == "event_msg" and $row.payload.type == "agent_message") then
           .out += [{turn: .turn, role: "assistant", text: ($row.payload.message // "")}]
+        elif (
+          $include_tools == 1
+          and $row.type == "event_msg"
+          and .turn > 0
+          and ($row.payload.type | test("tool|exec|command|function"; "i"))
+          and ($row.payload.type != "token_count")
+        ) then
+          .out += [tool_item($row; .turn)]
         else
           .
         end
@@ -234,18 +280,35 @@ _codex_copy_render_session() {
       | (resolved_turn($from_turn; $state.turn)) as $resolved_from
       | (resolved_turn($to_turn; $state.turn)) as $resolved_to
       | $state.out[]
-      | select($role_filter == "both" or .role == $role_filter)
+      | select(
+          $role_filter == "both"
+          or .role == $role_filter
+          or (.role == "tool" and $role_filter == "assistant")
+        )
       | select(.turn >= $resolved_from and .turn <= $resolved_to)
       | if .role == "user" then
           "## User\n\n" + .text + "\n"
-        else
+        elif .role == "assistant" then
           "## Codex\n\n" + .text + "\n"
+        else
+          .text + "\n"
         end
     ' "$file"
 }
 
 _codex_copy_deliver() {
-  local content="$1"
+  local content="$1" output_file="$2"
+
+  if [[ -n "$output_file" ]]; then
+    if [[ "$output_file" == "-" ]]; then
+      print -r -- "$content"
+      return 0
+    fi
+    local output_dir="${output_file:h}"
+    mkdir -p "$output_dir" 2>/dev/null || return 1
+    print -rn -- "$content" > "$output_file"
+    return $?
+  fi
 
   if [[ "${CODEX_COPY_CLIPBOARD:-}" == "stdout" ]]; then
     print -r -- "$content"
@@ -285,6 +348,8 @@ codex-copy() {
   local global_scope=0
   local use_cache=1
   local force_reindex=0
+  local include_tools=0
+  local output_file=""
   local arg
 
   while (( $# > 0 )); do
@@ -309,6 +374,18 @@ codex-copy() {
       --no-cache)
         use_cache=0
         shift
+        ;;
+      --with-tools)
+        include_tools=1
+        shift
+        ;;
+      -o|--output)
+        if (( $# < 2 )); then
+          print -u2 "codex-copy: $arg requires a path"
+          return 2
+        fi
+        output_file="$2"
+        shift 2
         ;;
       --last)
         selector="index"
@@ -400,11 +477,11 @@ codex-copy() {
     file="$(_codex_copy_resolve_session_by_index "$selector_value" "$scope_cwd" "$use_cache" "$force_reindex")" || return $?
   fi
 
-  content="$(_codex_copy_render_session "$file" "$role_filter" "$from_turn" "$to_turn")"
+  content="$(_codex_copy_render_session "$file" "$role_filter" "$from_turn" "$to_turn" "$include_tools")"
   if [[ -z "$content" ]]; then
     print -u2 "codex-copy: no matching messages found"
     return 1
   fi
 
-  _codex_copy_deliver "$content"
+  _codex_copy_deliver "$content" "$output_file"
 }

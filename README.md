@@ -53,6 +53,8 @@ codex-copy --list
 codex-copy --global --list
 codex-copy --reindex --list
 codex-copy --no-cache --list
+codex-copy --with-tools
+codex-copy --with-tools -o ./r1.md
 ```
 
 筛选消息：
@@ -65,10 +67,11 @@ codex-copy --turn -1
 codex-copy --from 2 --to 5
 ```
 
-测试或管道：
+测试、管道或写文件：
 
 ```zsh
 CODEX_COPY_CLIPBOARD=stdout codex-copy --last
+codex-copy --with-tools -o ./r1.md
 ```
 
 ### 说明
@@ -82,6 +85,8 @@ CODEX_COPY_CLIPBOARD=stdout codex-copy --last
 - 加 `--reindex` 强制重建缓存。
 - 加 `--no-cache` 跳过缓存。
 - 默认只复制 user / assistant，不复制 tool output。
+- 加 `--with-tools` 会额外复制工具事件输出。
+- 加 `-o PATH` 或 `--output PATH` 会把 Markdown 写入文件路径，例如 `./r1.md`。
 - 目前只有 `--turn` 支持负数：`--turn -1` 表示最后一轮。
 - `--from` / `--to` 只支持正数。
 - Codex 本地 session JSONL 不是公开稳定 API，将来可能需要适配。
@@ -98,7 +103,6 @@ Apache-2.0。
 
 ### 待开发
 
-- `--with-tools`：复制 tool output。
 - `--timestamps`：保留消息时间。
 - 交互 picker：选择 session / turn。
 - 更稳的 schema 适配：Codex 本地 JSONL 不是公开稳定 API。
@@ -142,6 +146,8 @@ codex-copy --list
 codex-copy --global --list
 codex-copy --reindex --list
 codex-copy --no-cache --list
+codex-copy --with-tools
+codex-copy --with-tools -o ./r1.md
 ```
 
 Filter messages:
@@ -154,10 +160,11 @@ codex-copy --turn -1
 codex-copy --from 2 --to 5
 ```
 
-For tests or pipes:
+For tests, pipes, or file output:
 
 ```zsh
 CODEX_COPY_CLIPBOARD=stdout codex-copy --last
+codex-copy --with-tools -o ./r1.md
 ```
 
 ### Notes
@@ -171,6 +178,8 @@ CODEX_COPY_CLIPBOARD=stdout codex-copy --last
 - Use `--reindex` to rebuild the cache.
 - Use `--no-cache` to skip the cache.
 - Copies user / assistant messages by default. Tool output is skipped.
+- Use `--with-tools` to include tool event output.
+- Use `-o PATH` or `--output PATH` to write Markdown to a file path such as `./r1.md`.
 - Only `--turn` supports negative indexes for now. `--turn -1` means the last turn.
 - `--from` / `--to` only accept positive indexes.
 - Codex local session JSONL is not a stable public API. This may need updates.
@@ -187,7 +196,6 @@ Apache-2.0.
 
 ### Roadmap
 
-- `--with-tools`: copy tool output.
 - `--timestamps`: keep message timestamps.
 - Interactive picker: choose session / turn.
 - Better schema compatibility: Codex local JSONL is not a stable public API.
@@ -208,6 +216,8 @@ Apache-2.0.
 | `/tmp` TSV session index cache | Done |
 | `--reindex` | Done |
 | `--no-cache` | Done |
+| `--with-tools` | Done |
+| `-o PATH` / `--output PATH` | Done |
 | Clipboard fallback | Done |
 | `CODEX_COPY_CLIPBOARD=stdout` | Done |
 
@@ -226,7 +236,7 @@ flowchart TD
   Select --> Parse["parse JSONL event_msg"]
   Parse --> Render["render Markdown"]
   Filters --> Render
-  Render --> Deliver["pbcopy / wl-copy / xclip / xsel / stdout"]
+  Render --> Deliver["pbcopy / wl-copy / xclip / xsel / stdout / file"]
 ```
 
 ## License
